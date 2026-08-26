@@ -1,0 +1,38 @@
+# Correctness-first training template. Align field names with the selected current VeOmni trainer.
+model:
+  model_path: TBD_MODEL_OR_CONVERTED_CHECKPOINT
+  config_path: TBD_CONFIG_PATH
+  attn_implementation: eager
+  # moe_implementation: eager  # enable only when the architecture is MoE
+
+data:
+  # Copy the reviewed data-config.yaml section or reference the model-specific data config.
+  datasets_type: mapping
+  datasets: TBD
+
+train:
+  seed: 42
+  max_steps: 10
+  global_batch_size: 1
+  micro_batch_size: 1
+  precision: bf16
+  optimizer:
+    name: adamw
+    lr: 1.0e-5
+    weight_decay: 0.0
+  lr_scheduler:
+    name: constant
+    warmup_steps: 0
+  parallel:
+    dp_size: 1
+    ulysses_size: 1
+    ep_size: 1
+  gradient_checkpointing:
+    enable: false
+  logging:
+    log_steps: 1
+  checkpoint:
+    output_dir: outputs/{{MODEL_SLUG}}
+    save_steps: 5
+    save_hf_weights: true
+    # load_path: outputs/{{MODEL_SLUG}}/global_step_5

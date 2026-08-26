@@ -1,0 +1,30 @@
+# Reusable data contract template. Replace every TBD from direct source evidence.
+data:
+  datasets_type: mapping  # mapping or iterable; verify against the selected trainer
+  datasets:
+    train:
+      path: TBD_DATASET_PATH
+      split: train
+      format: TBD  # parquet/jsonl/folder/custom
+      schema:
+        # Map raw fields to semantic roles; do not encode model-specific defaults in the Skill.
+        input: TBD
+        target: TBD
+        conditioning: TBD
+  dataloader:
+    num_workers: 4
+    pin_memory: true
+    prefetch_factor: 2
+  preprocessing:
+    seed: 42
+    decode: TBD
+    sample: TBD
+    resize_or_crop: TBD
+    normalize: TBD
+    processor_or_tokenizer: TBD
+  offline_cache:
+    enabled: false
+    path: TBD_CACHE_PATH
+    schema_version: 1
+    source_revision: "{{UPSTREAM_REVISION}}"
+    encoder_revision: TBD
