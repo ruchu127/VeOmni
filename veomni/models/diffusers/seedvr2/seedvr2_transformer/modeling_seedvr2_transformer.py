@@ -52,6 +52,7 @@ class SeedVR2TransformerModel(PreTrainedModel):
             rope_type=config.rope_type,
             rope_dim=config.rope_dim,
         )
+        self.post_init()
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
         self.dit.set_gradient_checkpointing(True)

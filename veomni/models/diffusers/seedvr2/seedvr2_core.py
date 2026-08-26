@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from functools import lru_cache
 from itertools import chain
 from typing import Any, Callable, Optional
 
@@ -26,6 +25,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 from torch.nn.modules.utils import _triple
+from torch.utils.checkpoint import checkpoint
 
 
 class Cache:
@@ -58,7 +58,9 @@ def flatten(hidden_states: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tens
 
 def unflatten(hidden_states: torch.Tensor, hidden_shape: torch.Tensor) -> list[torch.Tensor]:
     lengths = hidden_shape.prod(-1)
-    return [item.unflatten(0, shape.tolist()) for item, shape in zip(hidden_states.split(lengths.tolist()), hidden_shape)]
+    return [
+        item.unflatten(0, shape.tolist()) for item, shape in zip(hidden_states.split(lengths.tolist()), hidden_shape)
+    ]
 
 
 def _concat(vid: torch.Tensor, txt: torch.Tensor, vid_len: torch.Tensor, txt_len: torch.Tensor) -> torch.Tensor:
@@ -176,10 +178,15 @@ class MMRotaryEmbedding3D(nn.Module):
         super().__init__()
         self.rope = RotaryFrequencies(dim // 3, freqs_for="lang")
         self.mm = True
+        self._axial_freq_cache: dict[tuple, torch.Tensor] = {}
 
-    @lru_cache(maxsize=128)
     def _get_axial_freqs(self, *dims: int) -> torch.Tensor:
-        return self.rope.get_axial_freqs(*dims)
+        key = (self.rope.freqs.device, *dims)
+        if key not in self._axial_freq_cache:
+            if len(self._axial_freq_cache) >= 128:
+                self._axial_freq_cache.pop(next(iter(self._axial_freq_cache)))
+            self._axial_freq_cache[key] = self.rope.get_axial_freqs(*dims)
+        return self._axial_freq_cache[key]
 
     def get_freqs(self, vid_shape: torch.Tensor, txt_shape: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         vid_freqs = self._get_axial_freqs(1024, 128, 128)
@@ -201,10 +208,20 @@ class MMRotaryEmbedding3D(nn.Module):
         cache: Cache,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         vid_freqs, txt_freqs = cache("mmrope_freqs_3d", lambda: self.get_freqs(vid_shape, txt_shape))
-        vid_q = rearrange(apply_rotary_emb(vid_freqs, rearrange(vid_q, "l h d -> h l d").float()), "h l d -> l h d")
-        vid_k = rearrange(apply_rotary_emb(vid_freqs, rearrange(vid_k, "l h d -> h l d").float()), "h l d -> l h d")
-        txt_q = rearrange(apply_rotary_emb(txt_freqs, rearrange(txt_q, "l h d -> h l d").float()), "h l d -> l h d")
-        txt_k = rearrange(apply_rotary_emb(txt_freqs, rearrange(txt_k, "l h d -> h l d").float()), "h l d -> l h d")
+        vid_q_dtype, vid_k_dtype = vid_q.dtype, vid_k.dtype
+        txt_q_dtype, txt_k_dtype = txt_q.dtype, txt_k.dtype
+        vid_q = rearrange(
+            apply_rotary_emb(vid_freqs, rearrange(vid_q, "l h d -> h l d").float()), "h l d -> l h d"
+        ).to(vid_q_dtype)
+        vid_k = rearrange(
+            apply_rotary_emb(vid_freqs, rearrange(vid_k, "l h d -> h l d").float()), "h l d -> l h d"
+        ).to(vid_k_dtype)
+        txt_q = rearrange(
+            apply_rotary_emb(txt_freqs, rearrange(txt_q, "l h d -> h l d").float()), "h l d -> l h d"
+        ).to(txt_q_dtype)
+        txt_k = rearrange(
+            apply_rotary_emb(txt_freqs, rearrange(txt_k, "l h d -> h l d").float()), "h l d -> l h d"
+        ).to(txt_k_dtype)
         return vid_q, vid_k, txt_q, txt_k
 
 
@@ -261,8 +278,9 @@ def _expand_dims(value: torch.Tensor, dim: int, ndim: int) -> torch.Tensor:
 
 
 class AdaSingle(nn.Module):
-    def __init__(self, dim: int, emb_dim: int, layers: list[str], modes: list[str] = ["in", "out"]):
+    def __init__(self, dim: int, emb_dim: int, layers: list[str], modes: Optional[list[str]] = None):
         super().__init__()
+        modes = ["in", "out"] if modes is None else modes
         if emb_dim != 6 * dim:
             raise ValueError("AdaSingle requires emb_dim == 6 * dim")
         self.dim = dim
@@ -281,10 +299,11 @@ class AdaSingle(nn.Module):
         emb: torch.Tensor,
         layer: str,
         mode: str,
-        cache: Cache = Cache(disable=True),
+        cache: Optional[Cache] = None,
         branch_tag: str = "",
         hid_len: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        cache = Cache(disable=True) if cache is None else cache
         index = self.layers.index(layer)
         emb = rearrange(emb, "b (d l g) -> b d l g", l=len(self.layers), g=3)[..., index, :]
         emb = _expand_dims(emb, 1, hidden_states.ndim + 1)
@@ -470,8 +489,12 @@ class NaSwinAttention(nn.Module):
         self.head_dim = head_dim
         self.proj_qkv = MMModule(nn.Linear, dim, inner_dim * 3, bias=qk_bias, shared_weights=shared_weights)
         self.proj_out = MMModule(nn.Linear, inner_dim, dim, shared_weights=shared_weights)
-        self.norm_q = MMModule(qk_norm, dim=head_dim, eps=qk_norm_eps, elementwise_affine=True, shared_weights=shared_weights)
-        self.norm_k = MMModule(qk_norm, dim=head_dim, eps=qk_norm_eps, elementwise_affine=True, shared_weights=shared_weights)
+        self.norm_q = MMModule(
+            qk_norm, dim=head_dim, eps=qk_norm_eps, elementwise_affine=True, shared_weights=shared_weights
+        )
+        self.norm_k = MMModule(
+            qk_norm, dim=head_dim, eps=qk_norm_eps, elementwise_affine=True, shared_weights=shared_weights
+        )
         self.rope = MMRotaryEmbedding3D(rope_dim) if rope_type == "mmrope3d" else None
         self.attn = VarlenAttention()
         self.window = _triple(window)
@@ -502,8 +525,30 @@ class NaSwinAttention(nn.Module):
         concat, unconcat = cache_win("mm_pnp", lambda: repeat_concat_idx(vid_len, txt_len, window_count))
         if self.rope is not None:
             heads = txt_q.shape[1]
-            txt_q_items = list(chain(*([[item] * count for item, count in zip(unflatten(rearrange(txt_q, "l h d -> l (h d)"), txt_shape), window_count)])))
-            txt_k_items = list(chain(*([[item] * count for item, count in zip(unflatten(rearrange(txt_k, "l h d -> l (h d)"), txt_shape), window_count)])))
+            txt_q_items = list(
+                chain(
+                    *(
+                        [
+                            [item] * count
+                            for item, count in zip(
+                                unflatten(rearrange(txt_q, "l h d -> l (h d)"), txt_shape), window_count
+                            )
+                        ]
+                    )
+                )
+            )
+            txt_k_items = list(
+                chain(
+                    *(
+                        [
+                            [item] * count
+                            for item, count in zip(
+                                unflatten(rearrange(txt_k, "l h d -> l (h d)"), txt_shape), window_count
+                            )
+                        ]
+                    )
+                )
+            )
             txt_q_repeat, txt_shape_repeat = flatten(txt_q_items)
             txt_k_repeat, _ = flatten(txt_k_items)
             txt_q_repeat = rearrange(txt_q_repeat, "l (h d) -> l h d", h=heads)
@@ -571,11 +616,18 @@ class NaMMSRTransformerBlock(nn.Module):
             kwargs.pop("window_method"),
         )
         self.mlp_norm = MMModule(
-            norm, dim=dim, eps=norm_eps, elementwise_affine=False, shared_weights=shared_weights, vid_only=is_last_layer
+            norm,
+            dim=dim,
+            eps=norm_eps,
+            elementwise_affine=False,
+            shared_weights=shared_weights,
+            vid_only=is_last_layer,
         )
         if mlp_type != "swiglu":
             raise ValueError("SeedVR2 integration currently supports the upstream SwiGLU MLP")
-        self.mlp = MMModule(SwiGLUMLP, dim=dim, expand_ratio=expand_ratio, shared_weights=shared_weights, vid_only=is_last_layer)
+        self.mlp = MMModule(
+            SwiGLUMLP, dim=dim, expand_ratio=expand_ratio, shared_weights=shared_weights, vid_only=is_last_layer
+        )
         self.ada = MMModule(
             ada,
             dim=dim,
@@ -587,7 +639,9 @@ class NaMMSRTransformerBlock(nn.Module):
         self.is_last_layer = is_last_layer
 
     def forward(self, vid, txt, vid_shape, txt_shape, emb, cache: Cache):
-        hidden_lengths = MMArg(cache("vid_len", lambda: vid_shape.prod(-1)), cache("txt_len", lambda: txt_shape.prod(-1)))
+        hidden_lengths = MMArg(
+            cache("vid_len", lambda: vid_shape.prod(-1)), cache("txt_len", lambda: txt_shape.prod(-1))
+        )
         ada_kwargs = {"emb": emb, "hid_len": hidden_lengths, "cache": cache, "branch_tag": MMArg("vid", "txt")}
         vid_attn, txt_attn = self.attn_norm(vid, txt)
         vid_attn, txt_attn = self.ada(vid_attn, txt_attn, layer="attn", mode="in", **ada_kwargs)
@@ -698,9 +752,7 @@ class NaDiT(nn.Module):
                 "cache": cache,
             }
             if self.gradient_checkpointing and self.training:
-                vid, txt, vid_shape, txt_shape = torch.utils.checkpoint.checkpoint(
-                    block, use_reentrant=False, **kwargs
-                )
+                vid, txt, vid_shape, txt_shape = checkpoint(block, use_reentrant=False, **kwargs)
             else:
                 vid, txt, vid_shape, txt_shape = block(**kwargs)
         if self.vid_out_norm is not None:

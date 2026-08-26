@@ -1,30 +1,20 @@
-# Reusable data contract template. Replace every TBD from direct source evidence.
+# Reusable VeOmni DataArguments template. Replace every TBD from direct evidence.
 data:
-  datasets_type: mapping  # mapping or iterable; verify against the selected trainer
-  datasets:
-    train:
-      path: TBD_DATASET_PATH
-      split: train
-      format: TBD  # parquet/jsonl/folder/custom
-      schema:
-        # Map raw fields to semantic roles; do not encode model-specific defaults in the Skill.
-        input: TBD
-        target: TBD
-        conditioning: TBD
+  train_path: TBD_DATASET_PATH  # file, directory, or multisource YAML
+  data_type: TBD  # plaintext, conversation, diffusion, classification, or dpo
+  datasets_type: mapping  # mapping or iterable; verify against the trainer
+  source_name: TBD_SOURCE_NAME
+  data_transform: TBD_TRANSFORM_REGISTRY_KEY
+  # Required for diffusion/custom schemas too: DataArguments otherwise tries
+  # to infer a text key only for its built-in text data types.
+  text_keys: TBD_PRIMARY_FIELD
+  max_seq_len: 2048
+  mm_configs:
+    # Registry transform kwargs only; record raw-field semantics in the
+    # migration checklist and dataset manifest.
+    TBD_OPTION: TBD_VALUE
   dataloader:
+    type: native
     num_workers: 4
-    pin_memory: true
+    drop_last: true
     prefetch_factor: 2
-  preprocessing:
-    seed: 42
-    decode: TBD
-    sample: TBD
-    resize_or_crop: TBD
-    normalize: TBD
-    processor_or_tokenizer: TBD
-  offline_cache:
-    enabled: false
-    path: TBD_CACHE_PATH
-    schema_version: 1
-    source_revision: "{{UPSTREAM_REVISION}}"
-    encoder_revision: TBD

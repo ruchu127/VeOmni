@@ -3,6 +3,7 @@
 **TLDR:** VeOmni layers FSDP, Sequence Parallelism (SP), Expert Parallelism (EP), and fused kernels on top of HuggingFace models. This guide walks you through the integration steps with checklists per model type. For worked examples, see:
 - [qwen3_vl_example.md](./qwen3_vl_example.md) — VLM + MoE (image/video, deepstack, EP)
 - [qwen3_omni_moe_example.md](./qwen3_omni_moe_example.md) — Omni-modal MoE (image/video/audio, talker)
+- [seedvr2_3b_migration.md](./seedvr2_3b_migration.md) — custom DiT, strict weight conversion, offline latents, and Ascend E2E
 
 > **Scope note:** VeOmni now pins `transformers==5.9.0` and ships
 > patchgen-generated modeling files under

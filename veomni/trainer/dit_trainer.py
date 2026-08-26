@@ -28,6 +28,7 @@ from transformers.modeling_outputs import ModelOutput
 from ..arguments import DataArguments, ModelArguments, TrainingArguments, VeOmniArguments
 from ..data import build_data_transform, build_dataloader
 from ..data.data_collator import DataCollator
+from ..data.multimodal.dit import data_transform as _dit_data_transform  # noqa: F401
 from ..distributed.clip_grad_norm import veomni_clip_grad_norm
 from ..distributed.parallel_state import get_parallel_state, use_parallel_state
 from ..models import build_foundation_model

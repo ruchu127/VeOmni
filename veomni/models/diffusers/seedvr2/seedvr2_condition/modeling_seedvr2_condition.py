@@ -24,6 +24,7 @@ class SeedVR2ConditionModel(PreTrainedModel):
         super().__init__(config)
         self.generator = torch.Generator(device="cpu")
         self.generator.manual_seed(config.seed)
+        self.post_init()
 
     @torch.no_grad()
     def get_condition(self, **inputs) -> dict[str, Any]:
@@ -40,7 +41,9 @@ class SeedVR2ConditionModel(PreTrainedModel):
     def _one(value, name: str) -> torch.Tensor:
         if isinstance(value, list):
             if len(value) != 1:
-                raise ValueError(f"SeedVR2 currently requires micro_batch_size=1 for variable-size latents; {name} has {len(value)}")
+                raise ValueError(
+                    f"SeedVR2 currently requires micro_batch_size=1 for variable-size latents; {name} has {len(value)}"
+                )
             value = value[0]
         if not isinstance(value, torch.Tensor):
             value = torch.as_tensor(value)
@@ -78,9 +81,9 @@ class SeedVR2ConditionModel(PreTrainedModel):
             ratio = ratio.unsqueeze(-1)
         noisy = (1 - ratio) * clean + ratio * noise
         if self.config.condition_noise_scale:
-            condition_noise = torch.randn(degraded.shape, dtype=degraded.dtype, device="cpu", generator=self.generator).to(
-                degraded.device
-            )
+            condition_noise = torch.randn(
+                degraded.shape, dtype=degraded.dtype, device="cpu", generator=self.generator
+            ).to(degraded.device)
             degraded = degraded + self.config.condition_noise_scale * condition_noise
 
         clean_flat = rearrange(clean, "c t h w -> (t h w) c")

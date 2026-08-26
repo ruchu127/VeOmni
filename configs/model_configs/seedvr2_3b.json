@@ -1,0 +1,33 @@
+{
+  "architectures": [
+    "SeedVR2TransformerModel"
+  ],
+  "model_type": "SeedVR2TransformerModel",
+  "condition_model_type": "SeedVR2ConditionModel",
+  "vid_in_channels": 33,
+  "vid_out_channels": 16,
+  "vid_dim": 2560,
+  "vid_out_norm": "fusedrms",
+  "txt_in_dim": 5120,
+  "txt_in_norm": "fusedln",
+  "txt_dim": 2560,
+  "emb_dim": 15360,
+  "heads": 20,
+  "head_dim": 128,
+  "expand_ratio": 4,
+  "norm": "fusedrms",
+  "norm_eps": 1e-5,
+  "ada": "single",
+  "qk_bias": false,
+  "qk_norm": "fusedrms",
+  "patch_size": [1, 2, 2],
+  "num_layers": 32,
+  "mm_layers": 10,
+  "mlp_type": "swiglu",
+  "block_type": "mmdit_sr",
+  "window": [4, 3, 3],
+  "rope_type": "mmrope3d",
+  "rope_dim": 128,
+  "torch_dtype": "bfloat16",
+  "transformers_version": "5.9.0"
+}

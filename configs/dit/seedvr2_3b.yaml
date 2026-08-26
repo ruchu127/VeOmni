@@ -1,0 +1,68 @@
+# SeedVR2-3B offline latent training. See docs/usage/support_new_models/seedvr2_3b_migration.md.
+# Run: bash train.sh tasks/train_dit.py configs/dit/seedvr2_3b.yaml
+model:
+  model_path: pretrained_models/SeedVR2-3B-veomni
+  condition_model_path: configs/model_configs/seedvr2_condition.json
+  config_path: configs/model_configs/seedvr2_3b.json
+  condition_model_cfg:
+    num_train_timesteps: 1000
+    latent_channels: 16
+    text_dim: 5120
+    condition_noise_scale: 0.0
+  ops_implementation:
+    attn_implementation: eager
+    rotary_pos_emb_implementation: eager
+    rms_norm_implementation: eager
+    swiglu_mlp_implementation: eager
+    cross_entropy_loss_implementation: eager
+    moe_implementation: eager
+    load_balancing_loss_implementation: eager
+
+data:
+  train_path: output/seedvr2_3b_data
+  data_type: diffusion
+  datasets_type: iterable
+  text_keys: prompt_embeds
+  max_seq_len: 8192
+  dataloader:
+    type: native
+    num_workers: 2
+    drop_last: true
+
+train:
+  training_task: offline_training
+  global_batch_size: 8
+  micro_batch_size: 1
+  dyn_bsz: false
+  init_device: meta
+  seed: 42
+  num_train_epochs: 1
+  max_steps: 20
+  gradient_checkpointing:
+    enable: true
+  optimizer:
+    type: adamw
+    lr: 1.0e-5
+    betas: [0.9, 0.999]
+    lr_decay_style: linear
+    lr_min: 1.0e-6
+    lr_warmup_ratio: 0.0
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+  accelerator:
+    ulysses_size: 1
+    fsdp_config:
+      fsdp_mode: fsdp2
+      mixed_precision:
+        enable: true
+        param_dtype: bfloat16
+        reduce_dtype: float32
+        cast_forward_inputs: false
+  checkpoint:
+    output_dir: output/seedvr2_3b_train
+    save_steps: 5
+    save_epochs: 0
+    save_hf_weights: false
+  wandb:
+    enable: false
+    project: seedvr2_3b_migration

@@ -1,0 +1,13 @@
+{
+  "architectures": [
+    "SeedVR2ConditionModel"
+  ],
+  "model_type": "SeedVR2ConditionModel",
+  "num_train_timesteps": 1000,
+  "fixed_timestep": null,
+  "condition_noise_scale": 0.0,
+  "latent_channels": 16,
+  "text_dim": 5120,
+  "seed": 42,
+  "transformers_version": "5.9.0"
+}

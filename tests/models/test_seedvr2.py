@@ -47,6 +47,7 @@ def test_seedvr2_tiny_condition_forward_backward():
         prompt_embeds=[torch.randn(2, 48)],
     )
     model = SeedVR2TransformerModel(tiny_config())
+    model.gradient_checkpointing_enable()
 
     output = model(**batch)
     loss = output.loss["mse"]
@@ -72,3 +73,10 @@ def test_seedvr2_checkpoint_namespace_and_round_trip(tmp_path):
     assert set(restored.state_dict()) == set(state_dict)
     for key in state_dict:
         assert torch.equal(restored.state_dict()[key], state_dict[key]), key
+
+
+def test_dit_trainer_registers_offline_transform():
+    from veomni.data.data_transform import DATA_TRANSFORM_REGISTRY
+    from veomni.trainer import dit_trainer  # noqa: F401
+
+    assert "dit_offline" in DATA_TRANSFORM_REGISTRY.valid_keys()
