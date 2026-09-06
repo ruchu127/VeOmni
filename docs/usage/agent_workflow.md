@@ -35,12 +35,13 @@ If you are using Cursor or another AI coding tool on this project, the workflow 
 
 | What you say | Agent uses |
 |---|---|
-| "Add support for Llama 4" | `/veomni-new-model` |
+| "Add support for Llama 4" | `/veomni-model-migration` (new-model mode) |
+| "Migrate SeedVR2 from an upstream checkpoint" | `/veomni-model-migration` (migration mode) |
 | "Fix the OOM error in VLM training" | `/veomni-debug` |
 | "Add a fused RoPE kernel" | `/veomni-new-op` |
 | "Refactor the data collator" | `/veomni-develop` |
 | "Update torch to 2.10" | `/veomni-uv-update` |
-| "Port Qwen3 to transformers v5 patchgen" | `/veomni-migrate-transformers-v5` |
+| "Refresh Qwen3's transformers v5 patchgen path" | `/veomni-migrate-transformers-v5` |
 | "Analyze this Chrome trace" | `/veomni-profile` |
 | "Submit the current branch as a PR" | `/create-pr` |
 
@@ -55,7 +56,7 @@ Each skill is a folder containing a `SKILL.md` file with YAML frontmatter (`name
 ├── veomni-develop/SKILL.md    # Feature development and refactoring
 ├── veomni-debug/SKILL.md      # Bug fix and debugging (quick path + full protocol)
 ├── veomni-review/SKILL.md     # Pre-commit code review (mandatory)
-├── veomni-new-model/SKILL.md  # Add a new model to VeOmni
+├── veomni-model-migration/SKILL.md  # Add or migrate a model; selects the required mode
 ├── veomni-migrate-transformers-v5/SKILL.md  # Migrate model patches to transformers v5
 ├── veomni-new-op/SKILL.md     # Add a new kernel/operator
 ├── veomni-uv-update/SKILL.md  # Dependency management with uv

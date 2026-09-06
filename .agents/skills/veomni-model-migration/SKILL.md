@@ -1,17 +1,36 @@
 ---
 name: veomni-model-migration
-description: "Plan, implement, and verify an unsupported model migration into VeOmni from an upstream repository or checkpoint. Use for end-to-end model onboarding that includes source analysis, interface mapping, model or patchgen integration, weight conversion, data and training configuration, checkpoint save/resume, and evidence-backed validation. Do not use for a small fix to an already supported model."
+description: "Single entry point for adding or migrating a model into VeOmni. Covers new-model integration and end-to-end migration from pinned upstream source or checkpoints, including architecture analysis, model or patchgen implementation, parallel plans, data and training configuration, weight conversion, checkpoint save/resume, and evidence-backed validation. Do not use for a bug fix to an already supported model or for a Transformers v5 patchgen-only refresh."
 ---
 
-# VeOmni Model Migration
+# VeOmni Model Onboarding and Migration
 
-Migrate a model from pinned upstream source and weights to a reproducible VeOmni training path. Treat a loading model or a completed forward pass as intermediate evidence, not completion. Completion requires a short training run, checkpoint save and resume, and a report containing the exact commands and observed results.
+Use this skill as the single model-onboarding entry point. First classify the
+request, then run only the gates required by that mode. Keep the implementation
+protocol shared; do not duplicate a separate legacy workflow.
 
-This protocol is model-family neutral. Do not copy names, paths, tensor rules, or configuration fields from an example until source inspection proves they apply to the target.
+## 1. Classify the request
 
-## Start with an evidence packet
+| Mode | Select when | Required evidence |
+| --- | --- | --- |
+| **New-model mode** | VeOmni does not support the model yet and the task is ordinary model integration | Clean imports, registry/config lookup, model tests, and a short E2E run when feasible |
+| **Migration mode** | The task ports an external repository/checkpoint, changes model families or frameworks, requires weight conversion, or explicitly asks for reproducible training and resume validation | Everything in new-model mode, plus pinned provenance, converter coverage, numerical parity where possible, training loss evidence, checkpoint save/resume, and a report |
+| **Transformers v5 patchgen mode** | The model is already integrated and only its patchgen-generated v5 path needs to be added or refreshed | Follow `veomni-migrate-transformers-v5`; do not run the full migration gates unless the task also changes model onboarding or checkpoint semantics |
 
-Run the deterministic analyzer before editing VeOmni:
+For a request that only says “add support for model X”, start in new-model
+mode. If source pinning, checkpoint conversion, data migration, or
+save/resume is part of the request, upgrade to migration mode. A supported
+model bug or failed test belongs to `veomni-debug`.
+
+## 2. Establish the common model contract
+
+Before editing code, identify the model category (Transformers, Diffusers, or
+custom PyTorch), trainable and frozen modules, forward inputs/outputs, data
+contract, loss, parallel dimensions, and the nearest structural reference.
+Read [new-model-integration.md](references/new-model-integration.md) for the
+implementation checklist shared by both modes.
+
+For migration mode, create an evidence packet before writing model code:
 
 ```bash
 python .agents/skills/veomni-model-migration/scripts/analyze_upstream.py \
@@ -22,62 +41,77 @@ python .agents/skills/veomni-model-migration/scripts/analyze_upstream.py \
   --output .agents_workspace/migrations/<model-slug>
 ```
 
-The analyzer uses only local files and the Python standard library. It records the upstream revision, architecture clues, an initial integration route, a file checklist, a validation matrix, and editable copies of all required templates. Review its inferences against the source. Replace every `TBD` backed by direct evidence before implementation.
+Pin the upstream URL and commit, checkpoint revision or checksum, licenses,
+and dependency versions. Read [planning.md](references/planning.md), then
+complete `migration-manifest.yaml` and `migration-plan.md` before
+implementation. Replace every analyzer `TBD` with source-backed evidence.
 
-If the upstream code is not locally available, clone or export an exact revision first. Record the repository URL, commit, model-weight revision or checksum, license, and dependency versions. Never analyze a moving default branch and call the result reproducible.
+## 3. Implement the smallest complete path
 
-## Gate 1: approve the migration contract
+Implement one real batch through data preparation, condition processing,
+trainable-model forward, scalar loss, backward, optimizer step, and (in
+migration mode) checkpoint save/resume before adding performance features.
+Read [implementation.md](references/implementation.md) before coding so the
+upstream contract, converter, data path, and common checkpoint interface are
+preserved.
 
-Read [planning.md](references/planning.md) and complete `migration-manifest.yaml` plus `migration-plan.md`. Do not write model code until the packet identifies:
+- **Transformers:** follow [new-model-integration.md](references/new-model-integration.md).
+  When generated modeling is required, also follow
+  `veomni-migrate-transformers-v5`; edit patchgen configs and regenerate
+  outputs, never edit `generated/` directly.
+- **Diffusers:** follow `docs/usage/support_new_models/dit_model_guide.md`
+  and preserve Diffusers-compatible load/save keys.
+- **Custom PyTorch:** vendor only required Apache-compatible source with
+  provenance, or implement an isomorphic VeOmni wrapper. Add an explicit
+  converter and prove parameter coverage and numerical parity.
 
-- the trainable module, frozen condition modules, objective, and data contract;
-- the upstream-to-VeOmni interface map and the nearest structural references;
-- every checkpoint namespace/shape transform, including an explicit identity mapping when no conversion is needed;
-- target backends and parallel dimensions;
-- unit, numerical-parity, training, and checkpoint-resume evidence with pass criteria.
+Treat GPU and NPU as separate observable contracts. Shared model logic is
+preferred, but backend-specific imports must not make the other backend
+unimportable.
 
-Use structural similarity, not a shared product name, to choose reference integrations. Compare forward signatures, tensor layouts, normalization, attention, positional encoding, expert layout, condition encoders, output/loss contract, and checkpoint keys.
+## 4. Validate by mode
 
-## Gate 2: implement the smallest complete vertical slice
+Run validations in increasing cost order:
 
-Read [implementation.md](references/implementation.md). Implement one batch through data preparation, condition processing, trainable-model forward, scalar loss, backward, optimizer step, checkpoint save, and resume before adding performance features.
+1. static imports, config parsing, registry lookup, and generated-file drift;
+2. toy-model forward and model-specific unit tests;
+3. one-batch forward/backward with finite loss and gradients;
+4. a short E2E run with the selected trainer and data path.
 
-Select the integration route from evidence:
+Migration mode additionally requires [validation.md](references/validation.md):
 
-- Transformers-native model: use the repository's `veomni-new-model` protocol. If generated modeling is required, also follow `veomni-migrate-transformers-v5`; edit patchgen configs and regenerate outputs, never edit `generated/` directly.
-- Diffusers-native model: follow `docs/usage/support_new_models/dit_model_guide.md` and preserve diffusers-compatible load/save keys.
-- Custom PyTorch model: vendor only the required Apache-compatible source with provenance, or implement an isomorphic VeOmni wrapper. Add an explicit checkpoint converter and prove parameter coverage and numerical parity. Do not rely on an unpinned editable checkout at runtime.
+5. strict converter key/shape/coverage checks and a state-dict round trip;
+6. fixed-input upstream-versus-VeOmni parity, or a documented invariant when
+   equivalent inference is unavailable;
+7. a deterministic overfit fixture with recorded loss evidence;
+8. checkpoint save, fresh-process resume, and comparison with an uninterrupted
+   control at the same step;
+9. the exact target-backend production command.
 
-Treat GPU and NPU support as separate observable contracts. Shared model logic is preferred, but backend-specific kernels must have a correct PyTorch fallback. A backend import must not make the other backend unimportable.
+The migration gates override the looser “E2E if feasible” wording in the
+new-model implementation reference. Do not claim completion when a required
+criterion is unavailable; mark it `BLOCKED` and record the missing resource.
 
-## Gate 3: prove correctness and resumability
+## 5. Required deliverables
 
-Read [validation.md](references/validation.md) and fill `e2e-report.md`. Run validations in increasing cost order:
+### New-model mode
 
-1. static imports, configuration parsing, registry lookup, and generated-file drift checks;
-2. converter key/shape/coverage checks and a tiny-model state-dict round trip;
-3. upstream-versus-VeOmni forward parity on fixed inputs where equivalent inference exists;
-4. one-batch forward/backward with finite loss and gradients on trainable parameters;
-5. a multi-step run showing the expected loss behavior for a deterministic overfit fixture;
-6. checkpoint save, fresh-process resume, and the next optimizer step;
-7. target-backend E2E with the exact production command.
+- model registration/implementation or patchgen configs;
+- parallel plan, data/training configuration, and toy configuration;
+- model unit tests, a runnable E2E command, and relevant documentation.
 
-For save/resume, compare the resumed run with an uninterrupted control at the same step. At minimum record restored global step, optimizer/scheduler state, parameter checksum, next-batch identity, and next-step loss tolerance.
+### Migration mode
 
-## Required deliverables
+Everything in new-model mode, plus:
 
-Keep these artifacts discoverable from the PR:
+- `migration-manifest.yaml` and `migration-plan.md`;
+- strict weight converter or proof of identity-compatible checkpoint keys;
+- data/checkpoint provenance and reproducible configuration;
+- completed E2E report with commands, revisions, loss evidence, and resume
+  evidence;
+- completed Ascend experience report when NPU is in scope.
 
-- the general Skill, its references, analyzer, and reusable templates;
-- target model registration/implementation or patchgen files;
-- a strict, auditable weight converter or proof that the native checkpoint is identity-compatible;
-- data and training configurations with no machine-specific absolute paths;
-- toy/unit tests and an executable E2E command;
-- a completed E2E report with environment, revisions, commands, loss evidence, and checkpoint-resume evidence;
-- a completed Ascend experience report when NPU is in scope.
-
-Before handoff, rerun the analyzer or manually reconcile the original plan against the final diff. Every changed migration decision must be reflected in the manifest and report.
-
-## Stop conditions
-
-Stop and report missing evidence instead of fabricating success when upstream training code or weights are unavailable, the license is incompatible, a checkpoint transform has unexplained keys, required hardware is unavailable, loss is non-finite, or resume does not reproduce the uninterrupted control. A documented limitation is acceptable evidence; an unchecked box presented as complete is not.
+Before handoff, reconcile the final diff against the plan and rerun the
+analyzer or perform the equivalent manual audit. Never fabricate success when
+the license, weights, hardware, numerical checks, loss, or resume evidence is
+missing.

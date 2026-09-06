@@ -1,6 +1,6 @@
 ---
 name: veomni-develop
-description: "VeOmni-specific checklist for feature development and refactoring. Covers impact analysis across modalities, trainer hierarchy, data pipeline, and distributed code. Use before implementing any non-trivial change. For model-specific or ops-specific work, use veomni-new-model or veomni-new-op instead. Trigger: 'add feature', 'implement', 'refactor', 'reorganize', 'new capability'."
+description: "VeOmni-specific checklist for feature development and refactoring. Covers impact analysis across modalities, trainer hierarchy, data pipeline, and distributed code. Use before implementing any non-trivial change. For model-specific or ops-specific work, use veomni-model-migration or veomni-new-op instead. Trigger: 'add feature', 'implement', 'refactor', 'reorganize', 'new capability'."
 ---
 
 ## Impact Analysis
@@ -45,7 +45,7 @@ Before committing, check if the change requires documentation updates:
 
 ## When to Use Other Skills
 
-- **New model** → `/veomni-new-model`
+- **New or migrated model** → `/veomni-model-migration`
 - **New op/kernel** → `/veomni-new-op`
 - **Bug fix or debugging** → `/veomni-debug`
 - **Dependency update** → `/veomni-uv-update`

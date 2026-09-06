@@ -35,8 +35,8 @@ See the [Agent Skills specification](https://agentskills.io/specification) for t
 | `veomni-develop` | Feature development and refactoring — VeOmni-specific impact analysis and safety checklist |
 | `veomni-debug` | Bug fix and debugging — quick path for simple fixes, full protocol for complex issues |
 | `veomni-review` | Pre-commit code review via subagent (mandatory gate) |
-| `veomni-new-model` | Adding a new model to VeOmni (patchgen, parallel plan, registry) |
-| `veomni-migrate-transformers-v5` | Add or refresh a model's patchgen path under `veomni/models/transformers/<model>/generated/` (text + MoE + Omni). Use when porting upstream changes or adding a new model to the v5 patchgen flow. |
+| `veomni-model-migration` | Single entry point for new-model onboarding and full external model/checkpoint migration; selects the required evidence gates. |
+| `veomni-migrate-transformers-v5` | Add or refresh the patchgen path for an already integrated model under `veomni/models/transformers/<model>/generated/` (text + MoE + Omni). |
 | `veomni-new-op` | Adding a new optimized kernel/operator to veomni/ops/ |
 | `veomni-uv-update` | Dependency management with uv (version bumps, torch, lockfile) |
 | `create-pr` | Create a pull request — handles uncommitted changes, generates CI-compliant title and description |

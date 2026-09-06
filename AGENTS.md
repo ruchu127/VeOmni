@@ -92,7 +92,7 @@ Skills follow the [Agent Skills](https://agentskills.io) open standard. Each ski
 | Feature / refactoring | `/veomni-develop` |
 | Bug fix / debugging | `/veomni-debug` |
 | Code review (pre-commit) | `/veomni-review` |
-| Add new model | `/veomni-new-model` |
+| Add or migrate a model | `/veomni-model-migration` |
 | Migrate existing model to transformers v5 | `/veomni-migrate-transformers-v5` |
 | Add new op/kernel | `/veomni-new-op` |
 | Update dependencies (uv) | `/veomni-uv-update` |
@@ -101,8 +101,9 @@ Skills follow the [Agent Skills](https://agentskills.io) open standard. Each ski
 
 ### Quick Decision Guide
 
-- **"Add support for model X"** → `/veomni-new-model`
-- **"Migrate X to transformers v5" / "port X to patchgen" / "convert monkey patch to generated modeling"** → `/veomni-migrate-transformers-v5`
+- **"Add support for model X"** → `/veomni-model-migration` (new-model mode)
+- **"Migrate model X / import an external checkpoint / prove save-resume"** → `/veomni-model-migration` (migration mode)
+- **"Refresh an existing model's transformers v5 patchgen" / "fix patchgen drift"** → `/veomni-migrate-transformers-v5`
 - **"Add a new kernel / fused op"** → `/veomni-new-op`
 - **"Fix this error" / "training hangs" / "wrong results"** → `/veomni-debug`
 - **"Add a new capability" / "refactor" / "clean up"** → `/veomni-develop`

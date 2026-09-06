@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANALYZER = REPO_ROOT / ".agents/skills/veomni-model-migration/scripts/analyze_upstream.py"
+SKILL = REPO_ROOT / ".agents/skills/veomni-model-migration/SKILL.md"
 
 
 def run_analyzer(upstream: Path, output: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -27,6 +28,17 @@ def run_analyzer(upstream: Path, output: Path, *extra: str) -> subprocess.Comple
         capture_output=True,
         text=True,
     )
+
+
+def test_model_migration_skill_is_the_single_model_onboarding_entrypoint():
+    skill = SKILL.read_text(encoding="utf-8")
+
+    assert "Single entry point" in skill
+    assert "New-model mode" in skill
+    assert "Migration mode" in skill
+    assert "veomni-new-model" not in skill
+    assert "veomni-migrate-transformers-v5" in skill
+    assert (SKILL.parent / "references/new-model-integration.md").is_file()
 
 
 def test_analyzer_creates_transformers_migration_packet(tmp_path):

@@ -1,6 +1,6 @@
 ---
 name: veomni-migrate-transformers-v5
-description: "Use this skill when adding or refreshing a patchgen-generated modeling file for a VeOmni model under its generated directory — GPU-only or GPU+NPU, dense or MoE, text-only / VLM / Omni-thinker+talker. Covers: creating GPU and NPU patchgen configs, using patchgen decorators (replace_class/override_method/replace_function/modify_init/add_post_import_block/drop_import_names), reusing sibling-model patches via name_map, handling MoE weight-loading (CheckpointTensorConverter + fused gate_up_proj layout), multimodal/VLM forward with Ulysses SP, excluding speech/vocoder subtrees in Omni models (talker/token2wav/DiT/BigVGAN), wiring __init__.py for the patchgen-generated classes, running codegen, and adding test cases. Trigger: 'port a model to patchgen', 'add patchgen for a model', 'transformers v5 migration', 'add NPU patchgen'. Do NOT edit files under generated/ manually — always regenerate via patchgen."
+description: "Use this skill when an already integrated VeOmni model needs a patchgen-generated Transformers v5 path added or refreshed under its generated directory — GPU-only or GPU+NPU, dense or MoE, text-only / VLM / Omni-thinker+talker. Covers GPU/NPU patchgen configs, decorators, sibling-model reuse, MoE weight loading, multimodal/VLM forward, Omni exclusions, registry wiring, codegen, and tests. For a model not yet supported or an external checkpoint migration, use veomni-model-migration instead. Trigger: 'refresh patchgen', 'port an existing model to patchgen', 'add NPU patchgen', 'patchgen drift'. Do NOT edit files under generated/ manually — always regenerate via patchgen."
 ---
 
 # VeOmni Transformers v5 Patchgen Protocol
@@ -166,7 +166,7 @@ Drop phases that don't apply (e.g. Phase 3 for non-MoE models).
 **Operations:**
 
 1. Confirm model exists at `veomni/models/transformers/<M>/`. If not, the task is
-   "add new model" — use `/veomni-new-model` instead.
+   "add new model" — use `/veomni-model-migration` in new-model mode instead.
 2. If a patchgen-generated file already exists under
    `veomni/models/transformers/<M>/generated/` you are **refreshing** an
    existing config (e.g. picking up upstream changes, adding NPU sibling,
@@ -1022,7 +1022,7 @@ This skill adds or refreshes patchgen-generated modeling for an **existing**
 model directory under `veomni/models/transformers/`. For:
 
 - New model (does not yet exist under `veomni/models/transformers/`): use
-  `/veomni-new-model`.
+  `/veomni-model-migration` in new-model mode.
 - New op / kernel: use `/veomni-new-op`.
 - uv / dependency bumps (e.g. upgrading the `transformers-stable` pin): use
   `/veomni-uv-update`.
