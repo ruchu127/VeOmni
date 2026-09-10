@@ -179,7 +179,7 @@ NPU validation runs at two times:
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| attn_implementation | `Optional[Literal[...]]` | `"flash_attention_2"` | Attention implementation. Supported public values include `eager`, `sdpa`, `flash_attention_2/3/4`, `flex_attention`, `magi_attention`, and `native-sparse`. Under the VeOmni modeling backend, Flash, Flex, and Magi values resolve to SP-aware registry names. FlexAttention requires a model-provided native `BlockMask`; Ulysses currently requires it to be head-broadcast. MagiAttention requires a model-provided `MagiAttentionMask`, physical batch size 1, `cp_size == 1`, and zero attention dropout; it does not support KV-cache offsets. It uses the CUTLASS overlay on SM90 and CUTE DSL/JIT on SM100+. |
+| attn_implementation | `Optional[Literal[...]]` | `"flash_attention_2"` | Attention implementation. Supported public values include `eager`, `sdpa`, `flash_attention_2/3/4`, `flex_attention`, `magi_attention`, and `native-sparse`. Under the VeOmni modeling backend, Flash, Flex, and Magi values resolve to SP-aware registry names. FlexAttention requires a model-provided native `BlockMask`; Ulysses currently requires it to be head-broadcast. MagiAttention requires the optional `--extra magi` install (`uv sync --extra gpu --extra magi`), a model-provided `MagiAttentionMask`, physical batch size 1, `cp_size == 1`, and zero attention dropout; it does not support KV-cache offsets. It uses the CUTLASS overlay on SM90 and CUTE DSL/JIT on SM100+. |
 | moe_implementation | `str` | `"fused_triton"` | MoE experts forward implementation. `fused_triton` uses Triton group-gemm (GPU, SM70+); `fused_quack` uses Quack CUTLASS/CuTe (GPU, SM90+); `fused_npu` uses the NPU group-gemm kernel; `eager` is the reference loop. A value still equal to the GPU default auto-resolves to `fused_npu` on NPU; explicit incompatible non-default overrides raise. |
 | cross_entropy_loss_implementation | `str` | `"liger_kernel"` | Cross-entropy loss. `liger_kernel` (default, GPU only) fuses `lm_head` linear + CE; requires VeOmni-patched modeling files that pass `hidden_states=`/`weights=` to `self.loss_function(...)` — unpatched HF models that pass logits will RuntimeError. `chunk_loss` is the hardware-agnostic chunked F.linear+CE (CUDA + NPU). `npu` is a back-compat alias for `chunk_loss`. `eager` is `F.cross_entropy`. |
 | rms_norm_implementation | `str` | `"liger_kernel"` | RMSNorm. Known values: `liger_kernel` (default, GPU only), `npu`, `triton` (DeepSeek-V3 only; GPU only), `eager`. |
@@ -193,6 +193,7 @@ NPU validation runs at two times:
 | dsa_indexer_implementation | `Literal["eager", "cudnn", "tilelang"]` | `"eager"` | DeepSeek sparse-attention top-k indexer implementation. `tilelang` selects the DeepSeek-V4 Lightning Indexer kernel and requires an SM90+ CUDA GPU. |
 | dsa_attention_implementation | `Literal["eager", "flashmla_cudnn", "tilelang"]` | `"eager"` | DeepSeek sparse-attention implementation. `tilelang` selects the DeepSeek-V4 sparse MQA kernel and requires an SM90+ CUDA GPU. |
 | mhc_implementation | `Literal["eager", "tilelang"]` | `"eager"` | DeepSeek V4 manifold-constrained Hyper-Connection implementation. `tilelang` enables the forward/backward path provided by the `tile-kernels` package and requires an SM90+ CUDA GPU. |
+| qat_implementation | `Literal["none", "fp8_blockwise"]` | `"none"` | DeepSeek V4 quantization-aware training recipe. Unlike the other fields this selects a quantization recipe rather than a kernel backend. `fp8_blockwise` fake-quantizes what FP8 inference rounds — linear operands (128x128 weight tiles, 1x128 activation blocks), the NoPE channels of every stored KV entry (1x64), both sides of the indexer's logits (1x128), and the routed experts on the fused-MoE path (FP4 `1x32` groups when the checkpoint's `expert_dtype` is `fp4`, otherwise FP8 tiles) — and requires an SM90+ CUDA GPU. See `veomni/ops/qat/`. |
 
 #### The Lightning Indexer KL objective (`dsa_indexer_loss`)
 
@@ -317,8 +318,9 @@ group or learning rate is therefore a recipe choice beyond the reference, not a 
 | train_size | `int` | `10_000_000` | Number of tokens for training (used to compute steps under dynamic batch). |
 | train_sample | `int` | `10_000` | Number of samples for training (used to compute steps under non-dynamic batch). |
 | data_type | `Literal["plaintext", "conversation", "diffusion", "classification", "dpo"]` | `"conversation"` | Type of the training data. |
-| datasets_type | `str` | `"mapping"` | `IterableDataset` or `MappingDataset` (or custom). |
-| multisource_datasets_type | `str` | `"interleave"` | Dataset type for multisource training. |
+| datasets_type | `str` | `"mapping"` | Single-source builder for a non-YAML `train_path`. Built-in values: `"mapping"`, `"iterable"`. |
+| dataset_repeat | `bool` | `false` | Iterable-only. If true, replay the stream so one epoch can reach `train.max_steps` when the dump is shorter than that cap. If false, one pass ends the epoch. Each pass drops the last incomplete DP round. Mapping ignores this. |
+| multisource_datasets_type | `str` | `"interleave"` | Dataset builder when `train_path` is a YAML. Built-in value: `"interleave"`. |
 | source_name | `str` | `None` | Dataset name. Loaded from multisource YAML if multisource is enabled. |
 | dyn_bsz_buffer_size | `int` | `200` | Buffer size for dynamic batch size. |
 | text_keys | `str` | `None` | Key to retrieve text from data. Auto-resolved: `"content_split"` for plaintext, `"messages"` for conversation, `"text"` for classification, `"chosen"` for DPO. |

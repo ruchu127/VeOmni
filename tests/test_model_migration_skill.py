@@ -37,7 +37,8 @@ def test_model_migration_skill_is_the_single_model_onboarding_entrypoint():
     assert "New-model mode" in skill
     assert "Migration mode" in skill
     assert "veomni-new-model" not in skill
-    assert "veomni-migrate-transformers-v5" in skill
+    assert "veomni-migrate-transformers-v5" not in skill
+    assert "veomni-patchgen-model" in skill
     assert (SKILL.parent / "references/new-model-integration.md").is_file()
 
 

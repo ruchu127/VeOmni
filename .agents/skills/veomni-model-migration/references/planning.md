@@ -4,7 +4,8 @@ The planning packet is the contract between analysis, implementation, and review
 
 ## Pin the inputs
 
-Record all of the following in `migration-manifest.yaml`:
+Record all of the following in
+`.agents_workspace/migrations/<model-slug>/migration-manifest.yaml`:
 
 - upstream repository URL and immutable commit;
 - model checkpoint repository plus revision or local SHA-256 checksums;

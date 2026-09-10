@@ -15,7 +15,7 @@ protocol shared; do not duplicate a separate legacy workflow.
 | --- | --- | --- |
 | **New-model mode** | VeOmni does not support the model yet and the task is ordinary model integration | Clean imports, registry/config lookup, model tests, and a short E2E run when feasible |
 | **Migration mode** | The task ports an external repository/checkpoint, changes model families or frameworks, requires weight conversion, or explicitly asks for reproducible training and resume validation | Everything in new-model mode, plus pinned provenance, converter coverage, numerical parity where possible, training loss evidence, checkpoint save/resume, and a report |
-| **Transformers v5 patchgen mode** | The model is already integrated and only its patchgen-generated v5 path needs to be added or refreshed | Follow `veomni-migrate-transformers-v5`; do not run the full migration gates unless the task also changes model onboarding or checkpoint semantics |
+| **Transformers v5 patchgen mode** | The model is already integrated and only its patchgen-generated v5 path needs to be added or refreshed | Follow `veomni-patchgen-model`; do not run the full migration gates unless the task also changes model onboarding or checkpoint semantics |
 
 For a request that only says “add support for model X”, start in new-model
 mode. If source pinning, checkpoint conversion, data migration, or
@@ -43,7 +43,8 @@ python .agents/skills/veomni-model-migration/scripts/analyze_upstream.py \
 
 Pin the upstream URL and commit, checkpoint revision or checksum, licenses,
 and dependency versions. Read [planning.md](references/planning.md), then
-complete `migration-manifest.yaml` and `migration-plan.md` before
+complete `.agents_workspace/migrations/<model-slug>/migration-manifest.yaml`
+and `.agents_workspace/migrations/<model-slug>/migration-plan.md` before
 implementation. Replace every analyzer `TBD` with source-backed evidence.
 
 ## 3. Implement the smallest complete path
@@ -57,7 +58,7 @@ preserved.
 
 - **Transformers:** follow [new-model-integration.md](references/new-model-integration.md).
   When generated modeling is required, also follow
-  `veomni-migrate-transformers-v5`; edit patchgen configs and regenerate
+  `veomni-patchgen-model`; edit patchgen configs and regenerate
   outputs, never edit `generated/` directly.
 - **Diffusers:** follow `docs/usage/support_new_models/dit_model_guide.md`
   and preserve Diffusers-compatible load/save keys.
@@ -104,7 +105,8 @@ criterion is unavailable; mark it `BLOCKED` and record the missing resource.
 
 Everything in new-model mode, plus:
 
-- `migration-manifest.yaml` and `migration-plan.md`;
+- `.agents_workspace/migrations/<model-slug>/migration-manifest.yaml` and
+  `.agents_workspace/migrations/<model-slug>/migration-plan.md`;
 - strict weight converter or proof of identity-compatible checkpoint keys;
 - data/checkpoint provenance and reproducible configuration;
 - completed E2E report with commands, revisions, loss evidence, and resume
