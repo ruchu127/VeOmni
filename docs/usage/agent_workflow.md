@@ -55,7 +55,9 @@ still works by invoking `/skill-name` explicitly.
 `veomni-new-model` inspects the actual implementation to select Transformers,
 Diffusers, or other-framework integration, including component-level routing for
 mixed systems. Weight conversion, training, resume, and hardware checks apply
-according to the requested behavior and the actual adaptations.
+according to the requested behavior and the actual adaptations. Source analysis,
+configuration, and task-specific scripts are handled directly by the agent;
+there are no mandatory analysis tools or report templates.
 
 ## Directory Structure
 
@@ -68,11 +70,7 @@ Each skill is a folder containing a `SKILL.md` file with YAML frontmatter (`name
 ├── veomni-develop/SKILL.md    # Feature development and refactoring
 ├── veomni-debug/SKILL.md      # Bug fix and debugging (quick path + full protocol)
 ├── veomni-review/SKILL.md     # Pre-PR code review (mandatory)
-├── veomni-new-model/          # Integrate an existing external model
-│   ├── SKILL.md
-│   ├── references/
-│   ├── scripts/
-│   └── assets/templates/
+├── veomni-new-model/SKILL.md  # Integrate an existing external model
 ├── veomni-patchgen-model/SKILL.md  # Author a model's patchgen-generated modeling
 ├── veomni-new-op/SKILL.md     # Add a new kernel/operator
 ├── veomni-uv-update/SKILL.md  # Dependency management with uv
