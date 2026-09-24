@@ -1,4 +1,4 @@
-"""CPU correctness checks; full pretrained/NPU trainer acceptance is separate."""
+"""CPU/NPU correctness checks; full pretrained trainer acceptance is separate."""
 
 import os
 
@@ -21,6 +21,15 @@ def cpu_threads():
     yield
     torch.set_num_threads(previous)
     DefaultDeviceType.set_device_type(previous_device)
+
+
+def initialize_nonzero_linears(model):
+    """Exercise attention/gates; native zero output initialization hides errors."""
+    for module in model.modules():
+        if isinstance(module, torch.nn.Linear):
+            torch.nn.init.normal_(module.weight, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.normal_(module.bias, std=0.01)
 
 
 def tiny_config(glyph=False):
@@ -56,6 +65,7 @@ def batch(glyph=False):
 def test_forward_backward_update_and_strict_reload(tmp_path, checkpointing):
     torch.manual_seed(123)
     model = HunyuanVideo15Model(tiny_config())
+    initialize_nonzero_linears(model)
     if checkpointing:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     data = batch()
@@ -78,6 +88,7 @@ def test_forward_backward_update_and_strict_reload(tmp_path, checkpointing):
 def test_masked_condition_tokens_do_not_change_output():
     torch.manual_seed(123)
     model = HunyuanVideo15Model(tiny_config(glyph=True)).eval()
+    initialize_nonzero_linears(model)
     data = batch(glyph=True)
     first = model(**data).predictions
     data["text_states"][:, -1] = 10000
@@ -126,6 +137,7 @@ def test_upstream_output_gradient_and_full_parameter_schema():
     reference_cls = load_reference(os.environ["HUNYUANVIDEO15_SOURCE"])
     config = tiny_config(glyph=True)
     reference = reference_cls(**config.to_native_dict()).eval()
+    initialize_nonzero_linears(reference)
     model = HunyuanVideo15Model(config).eval()
     model.load_state_dict(reference.state_dict(), strict=True)
     data = batch(glyph=True)
@@ -138,9 +150,11 @@ def test_upstream_output_gradient_and_full_parameter_schema():
         extra_kwargs={k: data[k] for k in ("byt5_text_states", "byt5_text_mask")},
     )[0]
     actual = model(**data).predictions
+    assert expected.abs().max().item() > 1e-4
     torch.testing.assert_close(actual, expected, atol=2e-5, rtol=2e-5)
     expected.square().mean().backward()
     actual.square().mean().backward()
+    assert model.double_blocks[0].img_attn_q.weight.grad.abs().max().item() > 0
     errors = []
     parameters = dict(model.named_parameters())
     for name, p in reference.named_parameters():
@@ -296,3 +310,122 @@ def test_glyph_checkpoint_extraction_is_strict(tmp_path, monkeypatch):
     torch.save({"state_dict": {"module.text_tower.encoder.weight": reference["weight"]}}, checkpoint)
     with pytest.raises(RuntimeError, match="Missing key"):
         glyph_encoder.create_byt5(args, "cpu")
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("checkpointing", [False, True])
+def test_npu_forward_backward_update_and_rng(dtype, checkpointing):
+    import copy
+
+    from veomni.utils.device import get_device_type, get_torch_device
+
+    if get_device_type() != "npu" or not get_torch_device().is_available():
+        pytest.skip("An accessible NPU is required")
+    accelerator = get_torch_device()
+    accelerator.set_device(0)
+    torch.manual_seed(42)
+    config = HunyuanVideo15Config(
+        hidden_size=256,
+        heads_num=2,
+        mm_double_blocks_depth=2,
+        text_states_dim=32,
+        vision_states_dim=8,
+    )
+    reference = HunyuanVideo15Model(config)
+    initialize_nonzero_linears(reference)
+    reference = reference.to(dtype=dtype)
+    model = copy.deepcopy(reference).to("npu").train()
+    if checkpointing:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    # Distinct seeds avoid a degenerate noise == latent, zero velocity target.
+    flow = FlowMatchingConditioner(314, "npu")
+    latent = torch.randn(1, 32, 2, 4, 4, dtype=dtype).to("npu")
+    data = flow(latent)
+    data.update(
+        text_states=torch.randn(1, 8, 32, dtype=dtype).to("npu"),
+        encoder_attention_mask=torch.tensor([[True] * 4 + [False] * 4]).to("npu"),
+        byt5_text_states=torch.randn(1, 4, 1472, dtype=dtype).to("npu"),
+        byt5_text_mask=torch.tensor([[True, True, False, False]]).to("npu"),
+    )
+    assert data["training_target"].abs().max().item() > 0
+    cpu_data = {k: v.cpu() for k, v in data.items()}
+    with torch.autocast("cpu", dtype=torch.bfloat16, enabled=dtype == torch.bfloat16):
+        expected = reference(**cpu_data)
+    expected.loss["mse_loss"].backward()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, foreach=False, fused=False)
+    before = model.img_in.proj.weight.detach().clone()
+    losses = []
+    for step in range(2):
+        optimizer.zero_grad(set_to_none=True)
+        result = model(**data)
+        loss = result.loss["mse_loss"]
+        loss.backward()
+        assert torch.isfinite(loss).item()
+        assert all(torch.isfinite(p.grad).all().item() for p in model.parameters() if p.grad is not None)
+        assert model.double_blocks[0].img_attn_q.weight.grad.abs().max().item() > 0
+        if step == 0:
+            atol, rtol = (2e-4, 2e-3) if dtype == torch.float32 else (1e-2, 5e-2)
+            torch.testing.assert_close(result.predictions.cpu(), expected.predictions, atol=atol, rtol=rtol)
+            print(
+                "NPU parity",
+                dtype,
+                checkpointing,
+                "output max_abs",
+                (result.predictions.cpu() - expected.predictions).abs().max().item(),
+            )
+        optimizer.step()
+        losses.append(loss.item())
+    accelerator.synchronize()
+    assert not torch.equal(before, model.img_in.proj.weight)
+    saved = flow.rng_state_dict()
+    next_condition = flow(latent)
+    flow.load_rng_state_dict(saved)
+    replay = flow(latent)
+    for key in replay:
+        torch.testing.assert_close(replay[key], next_condition[key], rtol=0, atol=0)
+    print("NPU losses", dtype, checkpointing, losses)
+
+
+@pytest.mark.skipif(os.environ.get("HUNYUANVIDEO15_FULL_NPU") != "1", reason="Opt-in full 8.33B NPU test")
+def test_full_backbone_npu():
+    """Needs at least 40 GiB free; reduced latent input, random weights, SGD."""
+    from veomni.utils.device import get_device_type, get_torch_device
+
+    if get_device_type() != "npu" or not get_torch_device().is_available():
+        pytest.skip("An accessible NPU is required")
+    accelerator = get_torch_device()
+    accelerator.set_device(0)
+    accelerator.empty_cache()
+    accelerator.reset_peak_memory_stats()
+    torch.manual_seed(42)
+    with torch.device("npu:0"):
+        model = HunyuanVideo15Model._from_config(
+            HunyuanVideo15Config(), dtype=torch.bfloat16, attn_implementation="eager"
+        )
+        initialize_nonzero_linears(model)
+    assert sum(p.numel() for p in model.parameters()) == 8326608160
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.train()
+    flow = FlowMatchingConditioner(314, "npu")
+    data = flow(torch.randn(1, 32, 2, 4, 4, device="npu", dtype=torch.bfloat16))
+    data.update(
+        text_states=torch.randn(1, 8, 3584, device="npu", dtype=torch.bfloat16),
+        encoder_attention_mask=torch.tensor([[True] * 4 + [False] * 4], device="npu"),
+        byt5_text_states=torch.randn(1, 4, 1472, device="npu", dtype=torch.bfloat16),
+        byt5_text_mask=torch.tensor([[True, True, False, False]], device="npu"),
+    )
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, foreach=False)
+    before = model.img_in.proj.weight.detach().clone()
+    losses = []
+    for _ in range(2):
+        optimizer.zero_grad(set_to_none=True)
+        loss = model(**data).loss["mse_loss"]
+        loss.backward()
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, foreach=False)
+        assert torch.isfinite(loss).item() and torch.isfinite(norm).item()
+        assert model.double_blocks[0].img_attn_q.weight.grad.abs().max().item() > 0
+        optimizer.step()
+        losses.append(loss.item())
+    accelerator.synchronize()
+    assert not torch.equal(before, model.img_in.proj.weight)
+    print("Full NPU losses", losses, "peak allocated GiB", accelerator.max_memory_allocated() / 2**30)

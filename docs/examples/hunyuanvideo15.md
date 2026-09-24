@@ -1,7 +1,7 @@
 # HunyuanVideo 1.5: native 480p T2V
 
 This integration connects the native Tencent backbone and frozen conditions to
-`tasks/train_dit.py`. It currently has CPU structural/numerical validation;
+`tasks/train_dit.py`. It has CPU structural/numerical and single-NPU random-weight backbone validation;
 **pretrained real-data training and accelerator checkpoint resume are not yet
 validated**. Config-only model downloads do not satisfy those prerequisites.
 
@@ -121,7 +121,8 @@ A weight reload or a condition-generator unit test is not this trainer test.
 
 ## Verification and remaining evidence
 
-Run the CPU tests without downloading model weights:
+Run the focused tests without downloading model weights. NPU cases run when an
+accessible NPU is present and otherwise skip:
 
 ```bash
 PYTHONPATH=. python -m pytest -q \
@@ -137,8 +138,30 @@ loads the original modeling and attention function bodies, substitutes only
 external launch/import plumbing, and uses the source's uncompiled dense
 FlexAttention reference on CPU. No CUDA/SP execution is implied.
 
-The focused suite passed 16 tests in 32.70 seconds on CPU (including the optional
-source comparison). Accelerator tests are not included in that result.
+The focused suite passed 20 tests in 48.72 seconds, including the optional
+source comparison and four NPU cases (fp32/bf16, activation checkpointing on/off).
+Each NPU case checks CPU output parity, finite nonzero gradients, two AdamW
+updates, and condition-generator RNG replay. CPU bf16 uses autocast for the
+float32 timestep embedding. Nonzero test linear weights exercise attention and
+gates; the native zero output initializer could otherwise hide numerical errors.
+Production initialization is unchanged.
+
+On Ascend910_9382, the full 8.33B/54-layer backbone also completed bf16 forward,
+backward and two SGD updates with activation checkpointing. Peak allocated tensor
+memory was 31.07 GiB. Latents were only [1,32,2,4,4], text had 8 tokens and ByT5
+had 4 tokens; weights and conditions were random. This does not establish memory
+requirements for 480p video, full AdamW, frozen encoders or FSDP2 training.
+The opt-in test needs at least 40 GiB free on the selected device:
+
+```bash
+ASCEND_RT_VISIBLE_DEVICES=0 HUNYUANVIDEO15_FULL_NPU=1 PYTHONPATH=. \
+  python -m pytest tests/models/test_hunyuanvideo15.py -k full_backbone_npu -q -s
+```
+
+The validation environment used torch/torch-npu 2.10.0 and CANN 9.2.0 B020.
+The test account initially lacked access to the device nodes; an authorized
+process with their owning group resolved it. Check device-node permissions and
+runtime initialization before treating an unavailable device as a model failure.
 
 Evidence obtained during onboarding:
 
@@ -147,17 +170,23 @@ Evidence obtained during onboarding:
 | Registry/config and current training YAML | Passed |
 | Tiny model forward/backward and AdamW update | Passed, with and without activation checkpointing |
 | Tiny strict model serialization/reload | Passed, including the VeOmni loader with a one-rank CPU Gloo group |
-| Source tiny output / gradients | Max absolute error 0 / 0, fp32; masked text and ByT5 included |
+| Source tiny output / gradients | Max absolute error 0 / 1.46e-11, fp32, nonzero test weights; masked text and ByT5 included |
+| NPU tiny CPU parity | Max output absolute error 1.70e-4 (fp32), 3.91e-3 (bf16); checkpointing on/off |
+| NPU full backbone | Two bf16 SGD updates, finite nonzero gradients, changed parameters; 31.07 GiB peak allocated |
 | Source production state schema | 1793 matching keys/shapes/dtypes on meta |
 | Condition RNG/runtime hook | Next noise, timestep and target reproduce exactly |
 | Native tiny VAE encode/reload | Passed; random initialization only |
 | Real dataset preparation | 6092 aligned pairs; revision `fc9066b00cb690f44779c5202572b8e052b5cced2` |
 | Real video decode/preprocess | Caption preserved; [1,3,33,480,832], range [-1,1] |
 | Pretrained loading and pretrained numerical parity | Blocked: only configs/non-weight assets available |
-| Real-data trainer run and fresh-process DCP equivalence | Blocked: missing weights and no accessible NPU |
+| Real-data trainer run and fresh-process DCP equivalence | Blocked: missing weights; backbone NPU smoke checks do not cover this trainer path |
 | Multi-device/kernel performance | Not evaluated |
 
 Source comparison tolerances are declared before execution: output
 `atol=2e-5, rtol=2e-5`; gradients `atol=2e-5, rtol=2e-4`.
 Reported relative error uses `abs(reference).clamp_min(1e-8)` as denominator.
 The small random-weight comparison does not prove pretrained full-model parity.
+
+NPU-to-CPU output tolerances are fp32 `atol=2e-4, rtol=2e-3` and bf16
+`atol=1e-2, rtol=5e-2`. NPU gradient finiteness and updates are checked;
+full-model pretrained numerical parity and optimizer resume remain unverified.
